@@ -1,0 +1,227 @@
+--[[ 
+SCRIPT: AdminCore
+Version: 1.0
+Author: xgabrix79x (known as sqldev)
+
+LOCATION: ServerScriptService/AdminSystem/AdminCore
+--]]
+
+local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local AdminSystemFolder = script.Parent
+local Config = require(AdminSystemFolder.Config)
+local CommandsFolder = AdminSystemFolder.Commands
+
+local Commands = {}
+
+-- Load all command modules from the Commands folder
+for _, commandModule in ipairs(CommandsFolder:GetChildren()) do
+    if commandModule:IsA("ModuleScript") then
+        local commandName = commandModule.Name:lower()
+        Commands[commandName] = require(commandModule)
+    end
+end
+
+-- Helper function to get a player's permission level
+local function getPermissionLevel(player)
+    local userId = player.UserId
+    for level, userIds in pairs(Config.Permissions) do
+        if table.find(userIds, userId) then
+            return level
+        end
+    end
+    return 0 -- Default permission level for everyone else
+end
+
+-- Helper function to find players based on an argument
+local function findPlayers(player, argument)
+    argument = argument:lower()
+    if argument == "all" then
+        return Players:GetPlayers()
+    elseif argument == "me" then
+        return {player}
+    elseif argument == "others" then
+        local others = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player then
+                table.insert(others, p)
+            end
+        end
+        return others
+    end
+
+    local foundPlayers = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name:lower():sub(1, #argument) == argument then
+            table.insert(foundPlayers, p)
+        end
+    end
+    return foundPlayers
+end
+
+
+local function onPlayerChatted(player, message)
+    -- Check if the message starts with the command prefix
+    if not message:sub(1, #Config.Prefix) == Config.Prefix then
+        return
+    end
+
+    -- Parse the message
+    local content = message:sub(#Config.Prefix + 1)
+    local parts = content:split(" ")
+    local commandName = parts[1]:lower()
+    
+    local args = {}
+    for i = 2, #parts do
+        table.insert(args, parts[i])
+    end
+
+    -- Check if the command exists
+    local command = Commands[commandName]
+    if not command then
+        return
+    end
+
+    -- Check for permissions
+    local playerLevel = getPermissionLevel(player)
+    if playerLevel < command.PermissionLevel then
+        -- You can add a feedback message here if you want
+        -- For example: sendSystemMessage(player, "You do not have permission to use this command.")
+        return
+    end
+    
+    -- Process arguments to find players
+    local processedArgs = {}
+    for i, arg in ipairs(args) do
+        local foundPlayers = findPlayers(player, arg)
+        if #foundPlayers == 1 then
+            table.insert(processedArgs, foundPlayers[1])
+        elseif #foundPlayers > 1 then
+            -- Handle multiple players found if needed, for now just pass the name
+            table.insert(processedArgs, arg)
+        else
+            table.insert(processedArgs, arg)
+        end
+    end
+
+    -- Run the command
+    local success, response = pcall(command.Run, player, processedArgs)
+    
+    if not success then
+        warn("Error running command '" .. commandName .. "': " .. response)
+        -- sendSystemMessage(player, "An error occurred while running the command.")
+    elseif response then
+        -- sendSystemMessage(player, response) -- Send feedback if the command returns a string
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    player.Chatted:Connect(function(message)
+        onPlayerChatted(player, message)
+    end)
+end)
+---
+-- MODULESCRIPT: Config
+-- LOCATION: ServerScriptService/AdminSystem/Config
+
+local Config = {}
+
+Config.Prefix = ";" -- The character that comes before every command
+
+-- Permission Levels:
+-- 0: Player (Everyone)
+-- 1: Moderator
+-- 2: Admin
+-- 3: Owner
+Config.Permissions = {
+    [3] = {1234567}, -- Put Owner UserIds here
+    [2] = {}, -- Put Admin UserIds here
+    [1] = {}, -- Put Moderator UserIds here
+}
+
+return Config
+---
+-- MODULESCRIPT: kick
+-- LOCATION: ServerScriptService/AdminSystem/Commands/kick
+
+local command = {}
+
+command.PermissionLevel = 1 -- Mods and above
+command.Description = "Kicks a player from the server."
+
+function command.Run(player, args)
+    local targetPlayer = args[1]
+    local reason = table.concat(args, " ", 2)
+    
+    if not reason or reason == "" then
+        reason = "No reason specified."
+    end
+
+    if typeof(targetPlayer) == "Instance" and targetPlayer:IsA("Player") then
+        targetPlayer:Kick("Kicked by " .. player.Name .. ". Reason: " .. reason)
+        return targetPlayer.Name .. " has been kicked."
+    else
+        return "Player not found: " .. tostring(args[1])
+    end
+end
+
+return command
+---
+-- MODULESCRIPT: kill
+-- LOCATION: ServerScriptService/AdminSystem/Commands/kill
+
+local command = {}
+
+command.PermissionLevel = 1 -- Mods and above
+command.Description = "Kills a player's character."
+
+function command.Run(player, args)
+    local targetPlayer = args[1]
+
+    if typeof(targetPlayer) == "Instance" and targetPlayer:IsA("Player") and targetPlayer.Character then
+        targetPlayer.Character:BreakJoints()
+        return "Killed " .. targetPlayer.Name
+    else
+        return "Player not found or has no character: " .. tostring(args[1])
+    end
+end
+
+return command
+---
+-- MODULESCRIPT: tp
+-- LOCATION: ServerScriptService/AdminSystem/Commands/tp
+
+local command = {}
+
+command.PermissionLevel = 2 -- Admins and above
+command.Description = "Teleports one player to another."
+
+function command.Run(player, args)
+    local playerToMove = args[1]
+    local destinationPlayer = args[2]
+
+    if not (typeof(playerToMove) == "Instance" and playerToMove:IsA("Player")) then
+        return "First player not found: " .. tostring(args[1])
+    end
+    
+    if not (typeof(destinationPlayer) == "Instance" and destinationPlayer:IsA("Player")) then
+        return "Second player not found: " .. tostring(args[2])
+    end
+
+    if playerToMove.Character and destinationPlayer.Character then
+        local rootPart = playerToMove.Character:FindFirstChild("HumanoidRootPart")
+        local destRootPart = destinationPlayer.Character:FindFirstChild("HumanoidRootPart")
+        
+        if rootPart and destRootPart then
+            rootPart.CFrame = destRootPart.CFrame
+            return "Teleported " .. playerToMove.Name .. " to " .. destinationPlayer.Name
+        else
+            return "Could not find character parts for teleport."
+        end
+    else
+        return "One of the players does not have a character loaded."
+    end
+end
+
+return command
