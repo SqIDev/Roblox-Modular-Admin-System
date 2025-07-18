@@ -1,0 +1,33 @@
+--[[
+How to Add a New Command
+Creating a new command.
+Create a new ModuleScript inside the Commands folder.
+Name it exactly what you want the command to be (e.g., heal).
+
+Paste the following template into the module and customize it:
+Template for a new command
+--]]
+
+local command = {}
+
+-- Required: The minimum permission level to use this command
+command.PermissionLevel = 1 -- 0=Player, 1=Mod, 2=Admin, 3=Owner
+
+-- Required: A description of what the command does
+command.Description = "Heals a player to full health."
+
+-- Required: The function that runs when the command is executed
+-- 'player' is the one who ran the command.
+-- 'args' is a table of the arguments given.
+function command.Run(player, args)
+    -- Your code here
+    local targetPlayer = args[1] -- The first argument is the target player
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Humanoid") then
+        targetPlayer.Character.Humanoid.Health = targetPlayer.Character.Humanoid.MaxHealth
+        return "Healed " .. targetPlayer.Name .. " to full health."
+    else
+        return "Could not find the target player or they have no character."
+    end
+end
+
+return command
